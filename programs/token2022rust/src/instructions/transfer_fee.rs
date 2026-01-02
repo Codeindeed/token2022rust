@@ -18,3 +18,59 @@ use anchor_spl::{
     },
 };
 
+#[derive(Accounts)]
+pub struct Initialize<'info>{
+    #[account(mut)]
+    pub payer: Signer<'info>,
+    #[account(mut)]
+    pub mint_account: Signer<'info>,
+    pub token_program: Interface<'info, Token2022>,
+    pub system_program: Program<'info, System>,
+}
+
+pub fn initialize_transfer_fee_config(ctx: Context<Initialize>,transfer_fee_basis_points: u16, maximum_fee: u64,) -> Result<()> {
+    //calculate size of mint acc
+    let mint_size = ExtensionType::try_calculate_account_len::<PodMint>(&[ExtensionType::TransferFee])?;
+    //calculate minimum balance for mint account size in lamport
+    let lamports = (Rent::get()?).minimum_balance(mint_size);
+
+    create_account(
+        CpiContext::new(
+          ctx.accounts.system_program.to_account_info(),
+          CreateAccount{
+            from: ctx.accounts.payer.to_account_info(),
+            to:ctx.accounts.mint_account.to_account_info(),
+          }
+        ),
+        lamports,
+        mint_size as u64,
+        &ctx.accounts.token_program.key(),
+    )?;
+
+    tranfer_fee_initialize(
+        CpiContext::new(
+            ctx.accounts.token_program.to_account_info(),
+            TransferFeeInitialize{
+                token_program_id: ctx.accounts.token_program.key(),
+                mint: ctx.accounts.mint_account.to_account_info().key(),
+            },
+        ),
+        Some(&ctx.accounts.payer.key()),
+        Some(&ctx.accounts.payer.key()),
+        transfer_fee_basis_points,
+        maximum_fee,
+    )?;
+
+    initialize_mint2(
+       CpiContext::new(
+        ctx.accounts.token_program.to_account_info(),
+        InitializeMint2{
+            mint: ctx.accounts.mint_account.to_account_info().key(),
+        },
+       ),
+       2,
+       &ctx.accounts.payer.key(),
+       Some(&ctx.accounts.payer.key()),
+    )?;
+    Ok(());
+}
